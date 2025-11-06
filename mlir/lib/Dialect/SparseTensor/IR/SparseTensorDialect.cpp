@@ -328,7 +328,8 @@ SparseTensorEncodingAttr::withDimToLvl(AffineMap dimToLvl) const {
   assert(getImpl() && "Uninitialized SparseTensorEncodingAttr");
   return SparseTensorEncodingAttr::get(
       getContext(), getLvlTypes(), dimToLvl, AffineMap(), getPosWidth(),
-      getCrdWidth(), getExplicitVal(), getImplicitVal());
+      getCrdWidth(), getExplicitVal(), getImplicitVal(), getDimSlices(),
+      getSymmetry());
 }
 
 SparseTensorEncodingAttr
@@ -346,7 +347,8 @@ SparseTensorEncodingAttr::withBitWidths(unsigned posWidth,
   assert(getImpl() && "Uninitialized SparseTensorEncodingAttr");
   return SparseTensorEncodingAttr::get(
       getContext(), getLvlTypes(), getDimToLvl(), getLvlToDim(), posWidth,
-      crdWidth, getExplicitVal(), getImplicitVal());
+      crdWidth, getExplicitVal(), getImplicitVal(), getDimSlices(),
+      getSymmetry());
 }
 
 SparseTensorEncodingAttr SparseTensorEncodingAttr::withoutBitWidths() const {
@@ -358,7 +360,8 @@ SparseTensorEncodingAttr::withExplicitVal(Attribute explicitVal) const {
   assert(getImpl() && "Uninitialized SparseTensorEncodingAttr");
   return SparseTensorEncodingAttr::get(
       getContext(), getLvlTypes(), getDimToLvl(), getLvlToDim(), getPosWidth(),
-      getCrdWidth(), explicitVal, getImplicitVal());
+      getCrdWidth(), explicitVal, getImplicitVal(), getDimSlices(),
+      getSymmetry());
 }
 
 SparseTensorEncodingAttr SparseTensorEncodingAttr::withoutExplicitVal() const {
@@ -370,7 +373,8 @@ SparseTensorEncodingAttr::withImplicitVal(Attribute implicitVal) const {
   assert(getImpl() && "Uninitialized SparseTensorEncodingAttr");
   return SparseTensorEncodingAttr::get(
       getContext(), getLvlTypes(), getDimToLvl(), getLvlToDim(), getPosWidth(),
-      getCrdWidth(), getExplicitVal(), implicitVal);
+      getCrdWidth(), getExplicitVal(), implicitVal, getDimSlices(),
+      getSymmetry());
 }
 
 SparseTensorEncodingAttr SparseTensorEncodingAttr::withoutImplicitVal() const {
@@ -381,11 +385,25 @@ SparseTensorEncodingAttr SparseTensorEncodingAttr::withDimSlices(
     ArrayRef<SparseTensorDimSliceAttr> dimSlices) const {
   return SparseTensorEncodingAttr::get(
       getContext(), getLvlTypes(), getDimToLvl(), getLvlToDim(), getPosWidth(),
-      getCrdWidth(), getExplicitVal(), getImplicitVal(), dimSlices);
+      getCrdWidth(), getExplicitVal(), getImplicitVal(), dimSlices,
+      getSymmetry());
 }
 
 SparseTensorEncodingAttr SparseTensorEncodingAttr::withoutDimSlices() const {
   return withDimSlices(ArrayRef<SparseTensorDimSliceAttr>{});
+}
+
+SparseTensorEncodingAttr
+SparseTensorEncodingAttr::withSymmetry(ArrayAttr symmetry) const {
+  assert(getImpl() && "Uninitialized SparseTensorEncodingAttr");
+  return SparseTensorEncodingAttr::get(
+      getContext(), getLvlTypes(), getDimToLvl(), getLvlToDim(), getPosWidth(),
+      getCrdWidth(), getExplicitVal(), getImplicitVal(), getDimSlices(),
+      symmetry);
+}
+
+SparseTensorEncodingAttr SparseTensorEncodingAttr::withoutSymmetry() const {
+  return withSymmetry(ArrayAttr());
 }
 
 uint64_t SparseTensorEncodingAttr::getBatchLvlRank() const {
@@ -580,9 +598,10 @@ Attribute SparseTensorEncodingAttr::parse(AsmParser &parser, Type type) {
   unsigned crdWidth = 0;
   Attribute explicitVal;
   Attribute implicitVal;
+  ArrayAttr symmetry;
   StringRef attrName;
-  SmallVector<StringRef, 5> keys = {"map", "posWidth", "crdWidth",
-                                    "explicitVal", "implicitVal"};
+  SmallVector<StringRef, 6> keys = {"map", "posWidth", "crdWidth",
+                                    "explicitVal", "implicitVal", "symmetry"};
   while (succeeded(parser.parseOptionalKeyword(&attrName))) {
     // Detect admissible keyword.
     auto *it = find(keys, attrName);
@@ -690,6 +709,19 @@ Attribute SparseTensorEncodingAttr::parse(AsmParser &parser, Type type) {
       }
       break;
     }
+    case 5: { // symmetry
+      Attribute attr;
+      if (failed(parser.parseAttribute(attr)))
+        return {};
+      auto arrayAttr = llvm::dyn_cast<ArrayAttr>(attr);
+      if (!arrayAttr) {
+        parser.emitError(parser.getNameLoc(),
+                         "expected an array attribute for symmetry");
+        return {};
+      }
+      symmetry = arrayAttr;
+      break;
+    }
     } // switch
     // Only last item can omit the comma.
     if (parser.parseOptionalComma().failed())
@@ -708,7 +740,7 @@ Attribute SparseTensorEncodingAttr::parse(AsmParser &parser, Type type) {
   }
   return parser.getChecked<SparseTensorEncodingAttr>(
       parser.getContext(), lvlTypes, dimToLvl, lvlToDim, posWidth, crdWidth,
-      explicitVal, implicitVal, dimSlices);
+      explicitVal, implicitVal, dimSlices, symmetry);
 }
 
 void SparseTensorEncodingAttr::print(AsmPrinter &printer) const {
@@ -733,6 +765,8 @@ void SparseTensorEncodingAttr::print(AsmPrinter &printer) const {
   }
   if (getImplicitVal())
     printer << ", implicitVal = " << getImplicitVal();
+  if (getSymmetry())
+    printer << ", symmetry = " << getSymmetry();
   printer << " }>";
 }
 
@@ -783,7 +817,7 @@ LogicalResult SparseTensorEncodingAttr::verify(
     function_ref<InFlightDiagnostic()> emitError, ArrayRef<LevelType> lvlTypes,
     AffineMap dimToLvl, AffineMap lvlToDim, unsigned posWidth,
     unsigned crdWidth, Attribute explicitVal, Attribute implicitVal,
-    ArrayRef<SparseTensorDimSliceAttr> dimSlices) {
+    ArrayRef<SparseTensorDimSliceAttr> dimSlices, ArrayAttr symmetry) {
   if (!acceptBitWidth(posWidth))
     return emitError() << "unexpected position bitwidth: " << posWidth;
   if (!acceptBitWidth(crdWidth))
@@ -903,7 +937,7 @@ LogicalResult SparseTensorEncodingAttr::verifyEncoding(
   // level-rank is coherent across all the fields.
   if (failed(verify(emitError, getLvlTypes(), getDimToLvl(), getLvlToDim(),
                     getPosWidth(), getCrdWidth(), getExplicitVal(),
-                    getImplicitVal(), getDimSlices())))
+                    getImplicitVal(), getDimSlices(), getSymmetry())))
     return failure();
   // Check integrity with tensor type specifics.  In particular, we
   // need only check that the dimension-rank of the tensor agrees with
@@ -1217,7 +1251,8 @@ getNormalizedEncodingForSpecifier(SparseTensorEncodingAttr enc) {
       0, 0,
       Attribute(), // explicitVal (irrelevant to storage specifier)
       Attribute(), // implicitVal (irrelevant to storage specifier)
-      enc.getDimSlices());
+      enc.getDimSlices(),
+      ArrayAttr()); // symmetry (irrelevant to storage specifier)
 }
 
 StorageSpecifierType
