@@ -30,6 +30,7 @@
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 
 #include <optional>
+#include <iostream>
 
 using namespace mlir;
 using namespace mlir::sparse_tensor;
@@ -1322,6 +1323,77 @@ static void genStmt(CodegenEnv &env, RewriterBase &rewriter, ExprId exp,
       auto [loop, isSingleCond] =
           startLoop(env, rewriter, curr, li, lsize, needsUniv);
 
+      // Add filter for odd indices right after loop starts
+      Location loc = env.op().getLoc();
+      SmallVector<TensorLevel> tidLvls;
+      getAllTidLvlsInLatPoints(env, li, curr, [&](TensorLevel tl, AffineExpr exp) {
+        tidLvls.emplace_back(tl);
+      });
+      
+      // Check if we need to filter based on sparse coordinates
+      bool needsFilter = false;
+      Value coordToCheck;
+      for (TensorLevel tidLvl : tidLvls) {
+        const auto [tid, lvl] = env.unpackTensorLevel(tidLvl);
+        const auto lt = env.lt(tid, curr);
+        if ((lvl == 1) && lt.hasSparseSemantic()) {
+          needsFilter = true;
+          coordToCheck = env.emitter().getCoord(tid, lvl);
+          break;
+        }
+      }
+      
+      scf::IfOp filterOp;
+      if (needsFilter && coordToCheck) {
+        // Get the row index (level 0 coordinate) from the current tensor
+        // We need to find the same tensor that coordToCheck came from
+        Value rowIndex;
+        bool foundRowIndex = false;
+        for (TensorLevel tidLvl : tidLvls) {
+          const auto [tid, lvl] = env.unpackTensorLevel(tidLvl);
+          const auto lt = env.lt(tid, curr);
+          if ((lvl == 1) && lt.hasSparseSemantic()) {
+            // Found the tensor we're iterating over at level 1
+            // Get its level 0 coordinate (the row index)
+            rowIndex = env.emitter().getCoord(tid, 0);
+            foundRowIndex = true;
+            break;
+          }
+        }
+        
+        if (!foundRowIndex) {
+          // Fallback: try to find any sparse tensor at level 0
+          SmallVector<TensorLevel> prevTidLvls;
+          getAllTidLvlsInLatPoints(env, env.set(lts)[0], 0, [&](TensorLevel tl, AffineExpr exp) {
+            prevTidLvls.emplace_back(tl);
+          });
+          
+          for (TensorLevel tidLvl : prevTidLvls) {
+            const auto [tid, lvl] = env.unpackTensorLevel(tidLvl);
+            const auto lt = env.lt(tid, 0);
+            if (lt.hasSparseSemantic()) {
+              rowIndex = env.emitter().getCoord(tid, 0);
+              foundRowIndex = true;
+              break;
+            }
+          }
+        }
+        
+        assert(foundRowIndex && "Could not find row index for upper triangle filter");
+
+        Value isUpperTriangle = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::sge, coordToCheck, rowIndex);
+        
+        // Collect result types for the if-op
+        SmallVector<Type> types;
+        if (env.isReduc())
+          types.push_back(env.getReduc().getType());
+        if (env.isExpand())
+          types.push_back(rewriter.getIndexType());
+        
+        filterOp = scf::IfOp::create(rewriter, loc, types, isUpperTriangle, /*else=*/!types.empty());
+        rewriter.setInsertionPointToStart(&filterOp.getThenRegion().front());
+      }
+
       // Visit all lattices points with Li >= Lj to generate the
       // loop-body, possibly with if statements for coiteration.
       Value redInput = env.getReduc();
@@ -1344,6 +1416,35 @@ static void genStmt(CodegenEnv &env, RewriterBase &rewriter, ExprId exp,
             genStmt(env, rewriter, ej, curr + 1);
           }
         }
+      }
+      
+      // Close the filter if-op
+      if (needsFilter && filterOp) {
+        SmallVector<Value> yields;
+        if (env.isReduc())
+          yields.push_back(env.getReduc());
+        if (env.isExpand())
+          yields.push_back(env.getExpandCount());
+        
+        if (!yields.empty()) {
+          scf::YieldOp::create(rewriter, loc, yields);
+          // Handle else branch
+          rewriter.setInsertionPointToStart(&filterOp.getElseRegion().front());
+          SmallVector<Value> elseYields;
+          if (env.isReduc()) {
+            elseYields.push_back(redInput);
+            env.updateReduc(filterOp.getResult(0));
+          }
+          if (env.isExpand()) {
+            elseYields.push_back(cntInput);
+            if (env.isReduc())
+              env.updateExpandCount(filterOp.getResult(1));
+            else
+              env.updateExpandCount(filterOp.getResult(0));
+          }
+          scf::YieldOp::create(rewriter, loc, elseYields);
+        }
+        rewriter.setInsertionPointAfter(filterOp);
       }
 
       // End a loop.
