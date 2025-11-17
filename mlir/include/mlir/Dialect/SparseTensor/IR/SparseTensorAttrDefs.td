@@ -217,6 +217,15 @@ def SparseTensorEncodingAttr : SparseTensor_Attr<"SparseTensorEncoding",
       extended in the future. The default value Attribute() indicates that
       the implicit value is `0` (same type as the tensor element type).
 
+    - The symmetry groups for the sparse tensor. If symmetry is set,
+      it encodes which dimensions are symmetric with respect to each other.
+      It is represented as an array of arrays, where each inner array
+      contains the indices of dimensions that form a symmetry group.
+      For example, `[[0, 1]]` indicates that dimensions 0 and 1 are
+      symmetric (full 2D symmetry). `[[0, 1], [2, 3]]` would indicate
+      two separate symmetry groups. The default value Attribute() indicates
+      no symmetry constraints.
+
     Examples:
 
     ```mlir
@@ -268,6 +277,13 @@ def SparseTensorEncodingAttr : SparseTensor_Attr<"SparseTensorEncoding",
       implicitVal = 0 : i64
     }>
     ... tensor<8x8xi64, #DCSC> ...
+
+    // Symmetric matrix in CSR format with full 2D symmetry.
+    #SymmetricCSR = #sparse_tensor.encoding<{
+      map = (i, j) -> (i : dense, j : compressed),
+      symmetry = [[0, 1]]
+    }>
+    ... tensor<100x100xf64, #SymmetricCSR> ...
 
     // Block sparse row storage (2x3 blocks).
     #BSR = #sparse_tensor.encoding<{
@@ -360,7 +376,13 @@ def SparseTensorEncodingAttr : SparseTensor_Attr<"SparseTensorEncoding",
     ArrayRefParameter<
       "::mlir::sparse_tensor::SparseTensorDimSliceAttr",
       "per dimension slice metadata"
-      >: $dimSlices
+      >: $dimSlices,
+
+    // Symmetry groups encoded as an array of dimension index arrays.
+    // Each inner array represents a symmetry group where dimensions
+    // are symmetric with respect to each other.
+    // For example, [[0, 1]] indicates full symmetry between dims 0 and 1.
+    "::mlir::ArrayAttr":$symmetry
   );
 
   let builders = [
@@ -370,7 +392,8 @@ def SparseTensorEncodingAttr : SparseTensor_Attr<"SparseTensorEncoding",
                      CArg<"unsigned", "0">:$posWidth,
                      CArg<"unsigned", "0">:$crdWidth,
                      CArg<"::mlir::Attribute", "{}">:$explicitVal,
-                     CArg<"::mlir::Attribute", "{}">:$implicitVal), [{
+                     CArg<"::mlir::Attribute", "{}">:$implicitVal,
+                     CArg<"::mlir::ArrayAttr", "{}">:$symmetry), [{
       if (!dimToLvl) {
         dimToLvl = ::mlir::AffineMap::getMultiDimIdentityMap(lvlTypes.size(), $_ctxt);
       }
@@ -379,7 +402,7 @@ def SparseTensorEncodingAttr : SparseTensor_Attr<"SparseTensorEncoding",
       }
       return $_get($_ctxt, lvlTypes, dimToLvl, lvlToDim, posWidth, crdWidth,
         explicitVal, implicitVal,
-        ArrayRef<::mlir::sparse_tensor::SparseTensorDimSliceAttr>{});
+        ArrayRef<::mlir::sparse_tensor::SparseTensorDimSliceAttr>{}, symmetry);
     }]>
   ];
 
@@ -428,6 +451,14 @@ def SparseTensorEncodingAttr : SparseTensor_Attr<"SparseTensorEncoding",
     /// Constructs a new encoding with the dimSlices reset to the default,
     /// and all other fields inherited from `this`.
     SparseTensorEncodingAttr withoutDimSlices() const;
+
+    /// Constructs a new encoding with the given symmetry groups,
+    /// and all other fields inherited from `this`.
+    SparseTensorEncodingAttr withSymmetry(ArrayAttr symmetry) const;
+
+    /// Constructs a new encoding with the symmetry reset to the default,
+    /// and all other fields inherited from `this`.
+    SparseTensorEncodingAttr withoutSymmetry() const;
 
     //
     // Rank methods.
