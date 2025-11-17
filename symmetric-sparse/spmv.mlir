@@ -1,51 +1,24 @@
-// SpMV: y = A * x
-// A is sparse CSR; x and y are dense.
-
-// CSR encoding: 2D with both levels compressed, row-major order.
+// CSR encoding for A
 #CSR = #sparse_tensor.encoding<{
   map = (d0, d1) -> (d0 : compressed, d1 : compressed),
   posWidth = 32,
-  crdWidth = 32
+  crdWidth = 32,
+  symmetry = [[0, 1]]
 }>
 
-#DENSE1D = #sparse_tensor.encoding<{
-  map = (d0) -> (d0 : dense),
-  posWidth = 32,
-  crdWidth = 32
-}>
-
-// Core kernel: linalg.matvec taking a sparse A.
-func.func @spmv(%A: tensor<3x3xf64, #CSR>,
-                %x: tensor<3xf64>) -> tensor<3xf64> {
-  %zero = arith.constant 0.0 : f64
-  %y0   = tensor.empty() : tensor<3xf64>
-  %y    = linalg.fill ins(%zero : f64) outs(%y0 : tensor<3xf64>) -> tensor<3xf64>
-  %r    = linalg.matvec
-            ins(%A, %x : tensor<3x3xf64, #CSR>, tensor<3xf64>)
-            outs(%y   : tensor<3xf64>) -> tensor<3xf64>
-  return %r : tensor<3xf64>
-}
-
-// Tiny driver that builds A and x, calls @spmv, and prints y.
-// We define A as dense literal first and convert to sparse (#CSR).
-func.func @main() {
-  // A = [[1,0,2],
-  //      [0,3,0],
-  //      [0,4,5]]
-  %Ad = arith.constant dense<[[1.0, 0.0, 2.0],
-                              [0.0, 3.0, 0.0],
-                              [0.0, 4.0, 5.0]]> : tensor<3x3xf64>
-
-  %A  = sparse_tensor.convert %Ad
-        : tensor<3x3xf64> to tensor<3x3xf64, #CSR>
-
-  // x = [10, 20, 30]
-  %x = arith.constant dense<[10.0, 20.0, 30.0]> : tensor<3xf64>
-
-  %y = call @spmv(%A, %x) : (tensor<3x3xf64, #CSR>, tensor<3xf64>) -> tensor<3xf64>
-  %ys = sparse_tensor.convert %y
-         : tensor<3xf64> to tensor<3xf64, #DENSE1D>
-  // Print the dense result y.
-  sparse_tensor.print %ys : tensor<3xf64, #DENSE1D>
-  return
+func.func @sparse_mv(%A: tensor<?x?xf32, #CSR>,  // Compressed Sparse Row
+                     %x: tensor<?xf32>,
+                     %y: tensor<?xf32>) -> tensor<?xf32> {
+  %result = linalg.generic {
+    indexing_maps = [affine_map<(i,j) -> (i,j)>,  // A
+                     affine_map<(i,j) -> (j)>,      // x
+                     affine_map<(i,j) -> (i)>],     // y
+    iterator_types = ["parallel", "reduction"]
+  } ins(%A, %x: tensor<?x?xf32, #CSR>, tensor<?xf32>) outs(%y: tensor<?xf32>) {
+    ^bb0(%a: f32, %x_val: f32, %y_val: f32):
+      %mul = arith.mulf %a, %x_val : f32
+      %add = arith.addf %mul, %y_val : f32
+      linalg.yield %add : f32
+  } -> tensor<?xf32>
+  return %result : tensor<?xf32>
 }

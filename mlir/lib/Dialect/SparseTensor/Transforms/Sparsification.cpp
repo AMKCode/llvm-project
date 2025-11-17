@@ -1337,11 +1337,21 @@ static void genStmt(CodegenEnv &env, RewriterBase &rewriter, ExprId exp,
       for (TensorLevel tidLvl : tidLvls) {
         const auto [tid, lvl] = env.unpackTensorLevel(tidLvl);
         const auto lt = env.lt(tid, curr);
+        // Check if this is a sparse level at column dimension (lvl == 1)
+        // and if the tensor has symmetry encoding
         if ((lvl == 1) && lt.hasSparseSemantic()) {
-          needsFilter = true;
-          colIndex = env.emitter().getCoord(tid, lvl);
-          rowIndex = env.emitter().getCoord(tid, 0);
-          break;
+          // Get the encoding to check for symmetry
+          linalg::GenericOp op = env.op();
+          OpOperand *operand = &op->getOpOperand(tid);
+          const auto enc = getSparseTensorEncoding(operand->get().getType());
+          
+          // Only apply filter if the tensor has symmetry encoding
+          if (enc && enc.getSymmetry()) {
+            needsFilter = true;
+            colIndex = env.emitter().getCoord(tid, lvl);
+            rowIndex = env.emitter().getCoord(tid, 0);
+            break;
+          }
         }
       }
       
