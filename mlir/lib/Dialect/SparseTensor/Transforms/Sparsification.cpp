@@ -1332,56 +1332,25 @@ static void genStmt(CodegenEnv &env, RewriterBase &rewriter, ExprId exp,
       
       // Check if we need to filter based on sparse coordinates
       bool needsFilter = false;
-      Value coordToCheck;
+      Value colIndex;
+      Value rowIndex;
       for (TensorLevel tidLvl : tidLvls) {
         const auto [tid, lvl] = env.unpackTensorLevel(tidLvl);
         const auto lt = env.lt(tid, curr);
         if ((lvl == 1) && lt.hasSparseSemantic()) {
           needsFilter = true;
-          coordToCheck = env.emitter().getCoord(tid, lvl);
+          colIndex = env.emitter().getCoord(tid, lvl);
+          rowIndex = env.emitter().getCoord(tid, 0);
           break;
         }
       }
       
       scf::IfOp filterOp;
-      if (needsFilter && coordToCheck) {
-        // Get the row index (level 0 coordinate) from the current tensor
-        // We need to find the same tensor that coordToCheck came from
-        Value rowIndex;
-        bool foundRowIndex = false;
-        for (TensorLevel tidLvl : tidLvls) {
-          const auto [tid, lvl] = env.unpackTensorLevel(tidLvl);
-          const auto lt = env.lt(tid, curr);
-          if ((lvl == 1) && lt.hasSparseSemantic()) {
-            // Found the tensor we're iterating over at level 1
-            // Get its level 0 coordinate (the row index)
-            rowIndex = env.emitter().getCoord(tid, 0);
-            foundRowIndex = true;
-            break;
-          }
-        }
-        
-        if (!foundRowIndex) {
-          // Fallback: try to find any sparse tensor at level 0
-          SmallVector<TensorLevel> prevTidLvls;
-          getAllTidLvlsInLatPoints(env, env.set(lts)[0], 0, [&](TensorLevel tl, AffineExpr exp) {
-            prevTidLvls.emplace_back(tl);
-          });
-          
-          for (TensorLevel tidLvl : prevTidLvls) {
-            const auto [tid, lvl] = env.unpackTensorLevel(tidLvl);
-            const auto lt = env.lt(tid, 0);
-            if (lt.hasSparseSemantic()) {
-              rowIndex = env.emitter().getCoord(tid, 0);
-              foundRowIndex = true;
-              break;
-            }
-          }
-        }
-        
-        assert(foundRowIndex && "Could not find row index for upper triangle filter");
+      if (needsFilter) {
+        assert(colIndex && rowIndex);
 
-        Value isUpperTriangle = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::sge, coordToCheck, rowIndex);
+        // determine if the index is in the upper triangle
+        Value isUpperTriangle = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::sge, colIndex, rowIndex);
         
         // Collect result types for the if-op
         SmallVector<Type> types;
