@@ -1322,6 +1322,56 @@ static void genStmt(CodegenEnv &env, RewriterBase &rewriter, ExprId exp,
       auto [loop, isSingleCond] =
           startLoop(env, rewriter, curr, li, lsize, needsUniv);
 
+      // Add filter for odd indices right after loop starts
+      Location loc = env.op().getLoc();
+      SmallVector<TensorLevel> tidLvls;
+      getAllTidLvlsInLatPoints(env, li, curr, [&](TensorLevel tl, AffineExpr exp) {
+        tidLvls.emplace_back(tl);
+      });
+      
+      // Check if we need to filter based on sparse coordinates
+      bool needsFilter = false;
+      Value colIndex;
+      Value rowIndex;
+      for (TensorLevel tidLvl : tidLvls) {
+        const auto [tid, lvl] = env.unpackTensorLevel(tidLvl);
+        const auto lt = env.lt(tid, curr);
+        // Check if this is a sparse level at column dimension (lvl == 1)
+        // and if the tensor has symmetry encoding
+        if ((lvl == 1) && lt.hasSparseSemantic()) {
+          // Get the encoding to check for symmetry
+          linalg::GenericOp op = env.op();
+          OpOperand *operand = &op->getOpOperand(tid);
+          const auto enc = getSparseTensorEncoding(operand->get().getType());
+          
+          // Only apply filter if the tensor has symmetry encoding
+          if (enc && enc.getSymmetry()) {
+            needsFilter = true;
+            colIndex = env.emitter().getCoord(tid, lvl);
+            rowIndex = env.emitter().getCoord(tid, 0);
+            break;
+          }
+        }
+      }
+      
+      scf::IfOp filterOp;
+      if (needsFilter) {
+        assert(colIndex && rowIndex);
+
+        // determine if the index is in the upper triangle
+        Value isUpperTriangle = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::sge, colIndex, rowIndex);
+        
+        // Collect result types for the if-op
+        SmallVector<Type> types;
+        if (env.isReduc())
+          types.push_back(env.getReduc().getType());
+        if (env.isExpand())
+          types.push_back(rewriter.getIndexType());
+        
+        filterOp = scf::IfOp::create(rewriter, loc, types, isUpperTriangle, /*else=*/!types.empty());
+        rewriter.setInsertionPointToStart(&filterOp.getThenRegion().front());
+      }
+
       // Visit all lattices points with Li >= Lj to generate the
       // loop-body, possibly with if statements for coiteration.
       Value redInput = env.getReduc();
@@ -1344,6 +1394,35 @@ static void genStmt(CodegenEnv &env, RewriterBase &rewriter, ExprId exp,
             genStmt(env, rewriter, ej, curr + 1);
           }
         }
+      }
+      
+      // Close the filter if-op
+      if (needsFilter && filterOp) {
+        SmallVector<Value> yields;
+        if (env.isReduc())
+          yields.push_back(env.getReduc());
+        if (env.isExpand())
+          yields.push_back(env.getExpandCount());
+        
+        if (!yields.empty()) {
+          scf::YieldOp::create(rewriter, loc, yields);
+          // Handle else branch
+          rewriter.setInsertionPointToStart(&filterOp.getElseRegion().front());
+          SmallVector<Value> elseYields;
+          if (env.isReduc()) {
+            elseYields.push_back(redInput);
+            env.updateReduc(filterOp.getResult(0));
+          }
+          if (env.isExpand()) {
+            elseYields.push_back(cntInput);
+            if (env.isReduc())
+              env.updateExpandCount(filterOp.getResult(1));
+            else
+              env.updateExpandCount(filterOp.getResult(0));
+          }
+          scf::YieldOp::create(rewriter, loc, elseYields);
+        }
+        rewriter.setInsertionPointAfter(filterOp);
       }
 
       // End a loop.
