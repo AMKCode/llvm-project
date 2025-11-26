@@ -30,8 +30,6 @@
 #include "mlir/IR/Matchers.h"
 #include "mlir/Support/LLVM.h"
 
-#include <iostream>
-
 using namespace mlir;
 using namespace mlir::bufferization;
 using namespace mlir::linalg;
