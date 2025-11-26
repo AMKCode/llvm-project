@@ -30,7 +30,6 @@
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 
 #include <optional>
-#include <iostream>
 
 using namespace mlir;
 using namespace mlir::sparse_tensor;
