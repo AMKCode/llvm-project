@@ -30,6 +30,8 @@
 #include "mlir/IR/Matchers.h"
 #include "mlir/Support/LLVM.h"
 
+#include <iostream>
+
 using namespace mlir;
 using namespace mlir::bufferization;
 using namespace mlir::linalg;
@@ -1265,6 +1267,7 @@ struct DirectConvertRewriter : public OpRewritePattern<ConvertOp> {
   using OpRewritePattern::OpRewritePattern;
   LogicalResult matchAndRewrite(ConvertOp op,
                                 PatternRewriter &rewriter) const override {
+    std::cout << "entering DirectConvertRewriter matchAndRewrite" << std::endl;
     if (op.needsExtraSort())
       return op.emitError("ConvertOp not staged.");
 
@@ -1301,28 +1304,76 @@ struct DirectConvertRewriter : public OpRewritePattern<ConvertOp> {
     ValueRange vs;
     TensorLike dstBuf(rewriter, loc, dstStt.getRankedTensorType(), sizes);
 
+    bool hasSymmetry = false;
+    if (encDst && !encDst.getSymmetry().empty()) {
+      hasSymmetry = true;
+    }
+
     auto foreachOp = ForeachOp::create(
         rewriter, loc, src, dstBuf.val, foreachOrder,
         [&](OpBuilder &builder, Location loc, ValueRange dcvs, Value v,
             ValueRange reduc) {
           // Enters the loop, update the SSA value for insertion chain.
           dstBuf.val = reduc.front();
-          if (!skipZeroCheck) {
-            Value cond = genIsNonzero(builder, loc, v);
-            auto ifOp = scf::IfOp::create(builder, loc, reduc.getTypes(), cond,
-                                          /*else*/ true);
-            builder.setInsertionPointToStart(&ifOp.getElseRegion().front());
+          
+          // Add symmetry condition: only insert upper triangular elements (i <= j)
+          if (hasSymmetry) {
+            // Assume 2D matrix: dcvs[0] is row (i), dcvs[1] is column (j)
+            Value rowIdx = dcvs[0];
+            Value colIdx = dcvs[1];
+            Value symCond = arith::CmpIOp::create(
+                builder, loc, arith::CmpIPredicate::ule, rowIdx, colIdx);
+            
+            auto symIfOp = scf::IfOp::create(builder, loc, reduc.getTypes(), symCond,
+                                             /*else*/ true);
+            builder.setInsertionPointToStart(&symIfOp.getElseRegion().front());
             scf::YieldOp::create(builder, loc, dstBuf.val);
+            
+            builder.setInsertionPointToStart(&symIfOp.getThenRegion().front());
+            // Continue with zero check or insertion inside the symmetry condition
+            if (!skipZeroCheck) {
+              std::cout << "inserting ifOp" << std::endl;
+              Value cond = genIsNonzero(builder, loc, v);
+              auto ifOp = scf::IfOp::create(builder, loc, reduc.getTypes(), cond,
+                                            /*else*/ true);
+              builder.setInsertionPointToStart(&ifOp.getElseRegion().front());
+              scf::YieldOp::create(builder, loc, dstBuf.val);
 
-            builder.setInsertionPointToStart(&ifOp.getThenRegion().front());
-            dstBuf.insert(builder, loc, v, dcvs);
+              builder.setInsertionPointToStart(&ifOp.getThenRegion().front());
+              dstBuf.insert(builder, loc, v, dcvs);
+              scf::YieldOp::create(builder, loc, dstBuf.val);
+
+              // Exits the ifOp, update the sparse tensor SSA value.
+              builder.setInsertionPointAfter(ifOp);
+              dstBuf.val = ifOp.getResult(0);
+            } else {
+              dstBuf.insert(builder, loc, v, dcvs);
+            }
             scf::YieldOp::create(builder, loc, dstBuf.val);
-
-            // Exits the ifOp, update the sparse tensor SSA value.
-            builder.setInsertionPointAfter(ifOp);
-            dstBuf.val = ifOp.getResult(0);
+            
+            // Exit the symmetry ifOp
+            builder.setInsertionPointAfter(symIfOp);
+            dstBuf.val = symIfOp.getResult(0);
           } else {
-            dstBuf.insert(builder, loc, v, dcvs);
+            // Original logic when no symmetry
+            if (!skipZeroCheck) {
+              std::cout << "inserting ifOp" << std::endl;
+              Value cond = genIsNonzero(builder, loc, v);
+              auto ifOp = scf::IfOp::create(builder, loc, reduc.getTypes(), cond,
+                                            /*else*/ true);
+              builder.setInsertionPointToStart(&ifOp.getElseRegion().front());
+              scf::YieldOp::create(builder, loc, dstBuf.val);
+
+              builder.setInsertionPointToStart(&ifOp.getThenRegion().front());
+              dstBuf.insert(builder, loc, v, dcvs);
+              scf::YieldOp::create(builder, loc, dstBuf.val);
+
+              // Exits the ifOp, update the sparse tensor SSA value.
+              builder.setInsertionPointAfter(ifOp);
+              dstBuf.val = ifOp.getResult(0);
+            } else {
+              dstBuf.insert(builder, loc, v, dcvs);
+            }
           }
           sparse_tensor::YieldOp::create(builder, loc, dstBuf.val);
         });
