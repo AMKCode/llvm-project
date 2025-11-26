@@ -33,15 +33,18 @@ func.func @main() {
   %c1 = arith.constant 1 : index
   %c2 = arith.constant 2 : index
   
-  // COO format: positions and 2D index array
-  // Store all 7 non-zeros: (0,0), (0,1), (1,0), (1,1), (1,2), (2,1), (2,2)
-  %pos = arith.constant dense<[0, 7]> : tensor<2xi32>
-  %index = arith.constant dense<[[0, 0], [0, 1], [1, 0], [1, 1], [1, 2], [2, 1], [2, 2]]> : tensor<7x2xi32>
-  %values = arith.constant dense<[2.0, 1.0, 1.0, 3.0, 2.0, 2.0, 4.0]> : tensor<7xf32>
+  // Create a dense 3x3 symmetric matrix:
+  // [2.0, 1.0, 0.0]
+  // [1.0, 3.0, 2.0]
+  // [0.0, 2.0, 4.0]
+  %A_dense = arith.constant dense<[
+    [2.0, 1.0, 0.0],
+    [1.0, 3.0, 2.0],
+    [0.0, 2.0, 4.0]
+  ]> : tensor<3x3xf32>
   
-  // Assemble the sparse tensor
-  %A = sparse_tensor.assemble (%pos, %index), %values : 
-    (tensor<2xi32>, tensor<7x2xi32>), tensor<7xf32> to tensor<3x3xf32, #COO>
+  // Convert dense matrix to COO sparse format
+  %A = sparse_tensor.convert %A_dense : tensor<3x3xf32> to tensor<3x3xf32, #COO>
   
   // Create input vector x = [1.0, 2.0, 3.0]
   %x = arith.constant dense<[1.0, 2.0, 3.0]> : tensor<3xf32>

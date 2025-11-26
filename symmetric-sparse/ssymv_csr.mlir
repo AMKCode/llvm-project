@@ -35,19 +35,18 @@ func.func @main() {
   %c2 = arith.constant 2 : index
   %c3 = arith.constant 3 : index
   
-  // Manually construct CSR sparse tensor with full matrix
-  // CSR format: (d0 : dense, d1 : compressed)
-  // Row dimension is dense (all rows present), column dimension is compressed
-  // Row pointers: [0, 2, 5, 7] - where each row's non-zeros start/end
-  %pos = arith.constant dense<[0, 2, 5, 7]> : tensor<4xi32>
-  // Column indices: [0, 1, 0, 1, 2, 1, 2] - column index for each non-zero
-  %crd = arith.constant dense<[0, 1, 0, 1, 2, 1, 2]> : tensor<7xi32>
-  // Values: [2.0, 1.0, 1.0, 3.0, 2.0, 2.0, 4.0]
-  %values = arith.constant dense<[2.0, 1.0, 1.0, 3.0, 2.0, 2.0, 4.0]> : tensor<7xf32>
+  // Create a dense 3x3 symmetric matrix:
+  // [2.0, 1.0, 0.0]
+  // [1.0, 3.0, 2.0]
+  // [0.0, 2.0, 4.0]
+  %A_dense = arith.constant dense<[
+    [2.0, 1.0, 0.0],
+    [1.0, 3.0, 2.0],
+    [0.0, 2.0, 4.0]
+  ]> : tensor<3x3xf32>
   
-  // Assemble the sparse tensor from components (static shape required)
-  %A = sparse_tensor.assemble (%pos, %crd), %values : 
-    (tensor<4xi32>, tensor<7xi32>), tensor<7xf32> to tensor<3x3xf32, #CSR>
+  // Convert dense matrix to CSR sparse format
+  %A = sparse_tensor.convert %A_dense : tensor<3x3xf32> to tensor<3x3xf32, #CSR>
   
   // Create input vector x = [1.0, 2.0, 3.0]
   %x = arith.constant dense<[1.0, 2.0, 3.0]> : tensor<3xf32>
