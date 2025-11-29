@@ -5,9 +5,26 @@ This project adds symmetric sparse tensor support to MLIR's SparseTensor dialect
 ## Features
 
 - **Symmetry Encoding**: Added `symmetry` attribute to sparse tensor encodings
-- **Triangular Iteration**: Automatic filtering to process only upper triangle, avoiding redundant computation
+- **Triangular Iteration (Canonical Reads)**: Automatic filtering to process only upper triangle (col >= row), reducing iteration space by ~2x
 - **Format Support**: Works with CSR, COO, and other sparse formats
-- **Performance**: ~1.4-2x speedup on symmetric SpMV operations
+
+## Implementation Status
+
+✅ **Implemented:**
+- Symmetry field in SparseTensorEncodingAttr ([SparseTensorAttrDefs.td](mlir/include/mlir/Dialect/SparseTensor/IR/SparseTensorAttrDefs.td))
+- Triangular iteration filtering ([Sparsification.cpp](mlir/lib/Dialect/SparseTensor/Transforms/Sparsification.cpp#L1430-1450))
+- Test cases for CSR and COO formats
+
+⚠️ **Partial/Future Work:**
+- **Read/write elimination (dual updates)** - Adding `y[j] += A[i,j] * x[i]` for symmetric contributions
+  - Requires refactoring reduction handling to allow dual stores without breaking yield semantics
+  - Would provide correct results when combined with triangular storage
+- **Diagonal splitting** - Separating diagonal and off-diagonal elements into separate loop nests
+  - Would require pattern matching before sparsification to create two `linalg.generic` operations
+  - Could improve performance by avoiding branch divergence
+- **Triangular storage** - Storing only upper triangle in sparse format
+  - Current implementation assumes full matrix is stored
+  - Would require changes to sparse tensor conversion and storage
 
 ## Quick Start
 

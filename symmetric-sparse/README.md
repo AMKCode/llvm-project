@@ -61,3 +61,36 @@ The sparsification pass detects symmetric tensors and filters loops to only proc
 Input vector: `[1.0, 2.0, 3.0]`
 
 Expected result: `[4.0, 13.0, 16.0]`
+
+**Current Output:** `[4.0, 12.0, 12.0]` (triangular iteration only, missing dual updates)
+
+## What's Implemented vs. SySTeC Paper
+
+Based on the [SySTeC paper](https://arxiv.org/abs/2406.09266), there are two key optimizations for symmetric sparse tensors:
+
+### ✅ Implemented: Canonical Reads (Section 3.1)
+- **Triangular Iteration**: Filter to only access upper triangle (col >= row)
+- **Benefit**: Reduces iteration space and memory accesses by ~2x
+- **Code**: [Sparsification.cpp lines 1430-1450](../mlir/lib/Dialect/SparseTensor/Transforms/Sparsification.cpp#L1361-L1377)
+
+### ❌ Not Implemented: Read/Write Elimination (Section 3.1, Figure 2)
+- **Dual Updates**: For off-diagonal A[i,j], perform both:
+  - `y[i] += A[i,j] * x[j]` (normal update)
+  - `y[j] += A[i,j] * x[i]` (symmetric contribution)
+- **Challenge**: Conflicts with MLIR's reduction yield semantics
+- **Required Changes**: Refactor how reductions and control flow interact in sparsification pass
+
+### Future Work from Paper:
+- **Diagonal Splitting** (Section 4.2.9): Separate loop nests for diagonal vs off-diagonal
+- **Simplicial Lookup Tables** (Section 4.2.5): Optimize constant factors for higher-order tensors
+- **Triangular Storage**: Store only upper triangle in sparse format
+
+## Performance Analysis
+
+With triangular iteration only:
+- ✅ Reduces memory bandwidth (fewer reads from sparse matrix)
+- ✅ Reduces iteration overhead (smaller loop bounds)
+- ❌ Results are incorrect without dual updates
+- ❌ Only works correctly when full matrix is stored (not just upper triangle)
+
+The current implementation provides the **infrastructure** for symmetric sparse tensors in MLIR and demonstrates **triangular iteration**, which is the first step toward the full SySTeC optimizations.
