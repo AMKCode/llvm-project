@@ -1468,6 +1468,59 @@ static void genStmt(CodegenEnv &env, RewriterBase &rewriter, ExprId exp,
 
       // Close the filter if-op
       if (needsFilter && filterOp) {
+        linalg::GenericOp op = env.op();
+        OpOperand *output = op.getDpsInitOperand(0);
+        AffineMap outputMap = op.getMatchingIndexingMap(output);
+
+        // Only apply dual updates for vector outputs (SpMV pattern)
+        // For scalar outputs, use distributive grouping instead
+        bool isVectorOutput = (outputMap.getNumResults() == 1);
+
+        if (isVectorOutput) {
+          // Add symmetric contribution: y[j] += A[i,j] * x[i] when i != j
+          // This needs to be done before yielding from the then-branch
+
+          // Check if i != j (off-diagonal)
+          Value isDiagonal = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::eq, rowIndex, colIndex);
+          Value isOffDiagonal = arith::XOrIOp::create(rewriter, loc, isDiagonal,
+                                                       constantI1(rewriter, loc, true));
+
+          scf::IfOp symIfOp = scf::IfOp::create(rewriter, loc, TypeRange{}, isOffDiagonal, false);
+          rewriter.setInsertionPointToStart(&symIfOp.getThenRegion().front());
+
+          // Load the matrix value A[i,j] and x[i]
+          // Need to get the tensor operand to access values
+          for (TensorLevel tidLvl : tidLvls) {
+            const auto [tid, lvl] = env.unpackTensorLevel(tidLvl);
+            if (lvl == 1) { // Column level of the sparse matrix
+              OpOperand *matrixOperand = &op->getOpOperand(tid);
+              // Get the matrix value at current position
+              SmallVector<Value> matrixArgs;
+              Value matrixPtr = genSubscript(env, rewriter, matrixOperand, matrixArgs);
+              Value matrixVal = memref::LoadOp::create(rewriter, loc, matrixPtr, matrixArgs);
+
+              // Get x[i] - second input operand maps to (i,j) -> (j), but we need x[i]
+              // Get the input vector operand (should be operand 1)
+              OpOperand *vecOperand = &op->getOpOperand(1);
+              const TensorId vecTid = env.makeTensorId(vecOperand->getOperandNumber());
+              Value vecBuffer = env.emitter().getValBuffer()[vecTid];
+              Value xAtI = memref::LoadOp::create(rewriter, loc, vecBuffer, ValueRange{rowIndex});
+
+              // Compute A[i,j] * x[i]
+              Value symContrib = arith::MulFOp::create(rewriter, loc, matrixVal, xAtI);
+
+              // Load y[j], add contribution, and store back
+              Value outBuffer = env.emitter().getValBuffer()[env.merger().getOutTensorID()];
+              Value yAtJ = memref::LoadOp::create(rewriter, loc, outBuffer, ValueRange{colIndex});
+              Value yAtJUpdated = arith::AddFOp::create(rewriter, loc, yAtJ, symContrib);
+              memref::StoreOp::create(rewriter, loc, yAtJUpdated, outBuffer, ValueRange{colIndex});
+              break;
+            }
+          }
+
+          rewriter.setInsertionPointAfter(symIfOp);
+        }
+
         // Distributive Assignment Grouping (Section 4.2.7 from SySTeC paper):
         // For operations with invisible output symmetry (output doesn't depend on
         // loop indices, like scalar reductions x^T A x), multiply off-diagonal
@@ -1478,12 +1531,9 @@ static void genStmt(CodegenEnv &env, RewriterBase &rewriter, ExprId exp,
         // 2. Check if current position is off-diagonal (row != col)
         // 3. If both true, multiply reduction value by 2
 
-        linalg::GenericOp op = env.op();
         bool hasInvisibleOutputSymmetry = false;
 
         // Check if output indexing map is empty (scalar output)
-        OpOperand *output = op.getDpsInitOperand(0);
-        AffineMap outputMap = op.getMatchingIndexingMap(output);
         if (outputMap.getNumResults() == 0) {
           // Output is a scalar - has invisible symmetry!
           hasInvisibleOutputSymmetry = true;

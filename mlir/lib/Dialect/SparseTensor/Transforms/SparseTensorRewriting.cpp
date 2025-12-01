@@ -1320,12 +1320,12 @@ struct DirectConvertRewriter : public OpRewritePattern<ConvertOp> {
             Value colIdx = dcvs[1];
             Value symCond = arith::CmpIOp::create(
                 builder, loc, arith::CmpIPredicate::ule, rowIdx, colIdx);
-            
+
             symIfOp = scf::IfOp::create(builder, loc, reduc.getTypes(), symCond,
                                              /*else*/ true);
             builder.setInsertionPointToStart(&symIfOp.getElseRegion().front());
             scf::YieldOp::create(builder, loc, dstBuf.val);
-            
+
             builder.setInsertionPointToStart(&symIfOp.getThenRegion().front());
           }
 
