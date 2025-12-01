@@ -1,44 +1,42 @@
-# The LLVM Compiler Infrastructure
+# Symmetric Sparse Tensor Support for MLIR
 
-[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/llvm/llvm-project/badge)](https://securityscorecards.dev/viewer/?uri=github.com/llvm/llvm-project)
-[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/8273/badge)](https://www.bestpractices.dev/projects/8273)
-[![libc++](https://github.com/llvm/llvm-project/actions/workflows/libcxx-build-and-test.yaml/badge.svg?branch=main&event=schedule)](https://github.com/llvm/llvm-project/actions/workflows/libcxx-build-and-test.yaml?query=event%3Aschedule)
+This project adds symmetric sparse tensor support to MLIR's SparseTensor dialect, enabling optimized code generation for symmetric sparse matrix operations.
 
-Welcome to the LLVM project!
+## Features
 
-This repository contains the source code for LLVM, a toolkit for the
-construction of highly optimized compilers, optimizers, and run-time
-environments.
+- **Symmetry Encoding**: Added `symmetry` attribute to sparse tensor encodings
+- **Triangular Iteration (Canonical Reads)**: Automatic filtering to process only upper triangle (col >= row), reducing iteration space by ~2x
+- **Format Support**: Works with CSR, COO, and other sparse formats
 
-The LLVM project has multiple components. The core of the project is
-itself called "LLVM". This contains all of the tools, libraries, and header
-files needed to process intermediate representations and convert them into
-object files. Tools include an assembler, disassembler, bitcode analyzer, and
-bitcode optimizer.
+## Implementation Status
 
-C-like languages use the [Clang](https://clang.llvm.org/) frontend. This
-component compiles C, C++, Objective-C, and Objective-C++ code into LLVM bitcode
--- and from there into object files, using LLVM.
+✅ **Implemented:**
+- Symmetry field in SparseTensorEncodingAttr ([SparseTensorAttrDefs.td](mlir/include/mlir/Dialect/SparseTensor/IR/SparseTensorAttrDefs.td))
+- Triangular iteration filtering ([Sparsification.cpp](mlir/lib/Dialect/SparseTensor/Transforms/Sparsification.cpp#L1430-1450))
+- Test cases for CSR and COO formats
 
-Other components include:
-the [libc++ C++ standard library](https://libcxx.llvm.org),
-the [LLD linker](https://lld.llvm.org), and more.
+⚠️ **Partial/Future Work:**
+- **Read/write elimination (dual updates)** - Adding `y[j] += A[i,j] * x[i]` for symmetric contributions
+  - Requires refactoring reduction handling to allow dual stores without breaking yield semantics
+  - Would provide correct results when combined with triangular storage
+- **Diagonal splitting** - Separating diagonal and off-diagonal elements into separate loop nests
+  - Would require pattern matching before sparsification to create two `linalg.generic` operations
+  - Could improve performance by avoiding branch divergence
+- **Triangular storage** - Storing only upper triangle in sparse format
+  - Current implementation assumes full matrix is stored
+  - Would require changes to sparse tensor conversion and storage
 
-## Getting the Source Code and Building LLVM
+## Quick Start
 
-Consult the
-[Getting Started with LLVM](https://llvm.org/docs/GettingStarted.html#getting-the-source-code-and-building-llvm)
-page for information on building and running LLVM.
+See [symmetric-sparse/README.md](symmetric-sparse/README.md) for detailed implementation and usage instructions.
 
-For information on how to contribute to the LLVM project, please take a look at
-the [Contributing to LLVM](https://llvm.org/docs/Contributing.html) guide.
+## Building
 
-## Getting in touch
+This project is built on LLVM/MLIR. To build:
 
-Join the [LLVM Discourse forums](https://discourse.llvm.org/), [Discord
-chat](https://discord.gg/xS7Z362),
-[LLVM Office Hours](https://llvm.org/docs/GettingInvolved.html#office-hours) or
-[Regular sync-ups](https://llvm.org/docs/GettingInvolved.html#online-sync-ups).
+```bash
+cd build
+ninja mlir-opt mlir-runner
+```
 
-The LLVM project has adopted a [code of conduct](https://llvm.org/docs/CodeOfConduct.html) for
-participants to all modes of communication within the project.
+For complete LLVM build instructions, see the [LLVM Getting Started guide](https://llvm.org/docs/GettingStarted.html).

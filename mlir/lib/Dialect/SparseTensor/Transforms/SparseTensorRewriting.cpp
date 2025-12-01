@@ -1301,12 +1301,34 @@ struct DirectConvertRewriter : public OpRewritePattern<ConvertOp> {
     ValueRange vs;
     TensorLike dstBuf(rewriter, loc, dstStt.getRankedTensorType(), sizes);
 
+    bool hasSymmetry = false;
+    if (encDst && !encDst.getSymmetry().empty()) {
+      hasSymmetry = true;
+    }
+
     auto foreachOp = ForeachOp::create(
         rewriter, loc, src, dstBuf.val, foreachOrder,
         [&](OpBuilder &builder, Location loc, ValueRange dcvs, Value v,
             ValueRange reduc) {
           // Enters the loop, update the SSA value for insertion chain.
           dstBuf.val = reduc.front();
+          
+          scf::IfOp symIfOp;
+          if (hasSymmetry) {
+            // Assume 2D matrix: dcvs[0] is row (i), dcvs[1] is column (j)
+            Value rowIdx = dcvs[0];
+            Value colIdx = dcvs[1];
+            Value symCond = arith::CmpIOp::create(
+                builder, loc, arith::CmpIPredicate::ule, rowIdx, colIdx);
+
+            symIfOp = scf::IfOp::create(builder, loc, reduc.getTypes(), symCond,
+                                             /*else*/ true);
+            builder.setInsertionPointToStart(&symIfOp.getElseRegion().front());
+            scf::YieldOp::create(builder, loc, dstBuf.val);
+
+            builder.setInsertionPointToStart(&symIfOp.getThenRegion().front());
+          }
+
           if (!skipZeroCheck) {
             Value cond = genIsNonzero(builder, loc, v);
             auto ifOp = scf::IfOp::create(builder, loc, reduc.getTypes(), cond,
@@ -1324,7 +1346,14 @@ struct DirectConvertRewriter : public OpRewritePattern<ConvertOp> {
           } else {
             dstBuf.insert(builder, loc, v, dcvs);
           }
-          sparse_tensor::YieldOp::create(builder, loc, dstBuf.val);
+          scf::YieldOp::create(builder, loc, dstBuf.val);
+
+          if (hasSymmetry) {
+            // Exit the symmetry ifOp
+            builder.setInsertionPointAfter(symIfOp);
+            dstBuf.val = symIfOp.getResult(0);
+            sparse_tensor::YieldOp::create(builder, loc, dstBuf.val);
+          }
         });
 
     rewriter.setInsertionPointAfter(foreachOp);
