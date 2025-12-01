@@ -153,11 +153,11 @@ module {
   ^bb6:  // pred: ^bb5
     %39 = llvm.add %27, %13 : i64
     llvm.br ^bb1(%39 : i64)
-  ^bb7(%40: i64, %41: i64):  // 2 preds: ^bb5, ^bb21
+  ^bb7(%40: i64, %41: i64):  // 2 preds: ^bb5, ^bb22
     llvm.br ^bb8
   ^bb8:  // pred: ^bb7
     %42 = llvm.icmp "ult" %40, %26 : i64
-    llvm.cond_br %42, ^bb9, ^bb23
+    llvm.cond_br %42, ^bb9, ^bb24
   ^bb9:  // pred: ^bb8
     %43 = llvm.extractvalue %17[1] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)> 
     %44 = llvm.getelementptr inbounds|nuw %43[%40] : (!llvm.ptr, i64) -> !llvm.ptr, i32
@@ -167,16 +167,16 @@ module {
     %48 = llvm.getelementptr inbounds|nuw %47[%46] : (!llvm.ptr, i64) -> !llvm.ptr, f32
     %49 = llvm.load %48 : !llvm.ptr -> f32
     llvm.br ^bb10(%40, %49 : i64, f32)
-  ^bb10(%50: i64, %51: f32):  // 2 preds: ^bb9, ^bb15
+  ^bb10(%50: i64, %51: f32):  // 2 preds: ^bb9, ^bb16
     %52 = llvm.icmp "slt" %50, %41 : i64
-    llvm.cond_br %52, ^bb11, ^bb16
+    llvm.cond_br %52, ^bb11, ^bb17
   ^bb11:  // pred: ^bb10
     %53 = llvm.extractvalue %18[1] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)> 
     %54 = llvm.getelementptr inbounds|nuw %53[%50] : (!llvm.ptr, i64) -> !llvm.ptr, i32
     %55 = llvm.load %54 : !llvm.ptr -> i32
     %56 = llvm.zext %55 : i32 to i64
     %57 = llvm.icmp "sge" %56, %46 : i64
-    llvm.cond_br %57, ^bb12, ^bb13
+    llvm.cond_br %57, ^bb12, ^bb14(%51 : f32)
   ^bb12:  // pred: ^bb11
     %58 = llvm.extractvalue %15[1] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)> 
     %59 = llvm.getelementptr inbounds|nuw %58[%50] : (!llvm.ptr, i64) -> !llvm.ptr, f32
@@ -186,43 +186,60 @@ module {
     %63 = llvm.load %62 : !llvm.ptr -> f32
     %64 = llvm.fmul %60, %63 : f32
     %65 = llvm.fadd %64, %51 : f32
+    %66 = llvm.icmp "ne" %46, %56 : i64
+    llvm.cond_br %66, ^bb13, ^bb14(%65 : f32)
+  ^bb13:  // pred: ^bb12
+    %67 = llvm.extractvalue %15[1] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)> 
+    %68 = llvm.getelementptr inbounds|nuw %67[%50] : (!llvm.ptr, i64) -> !llvm.ptr, f32
+    %69 = llvm.load %68 : !llvm.ptr -> f32
+    %70 = llvm.extractvalue %5[1] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)> 
+    %71 = llvm.getelementptr inbounds|nuw %70[%46] : (!llvm.ptr, i64) -> !llvm.ptr, f32
+    %72 = llvm.load %71 : !llvm.ptr -> f32
+    %73 = llvm.fmul %69, %72 : f32
+    %74 = llvm.extractvalue %11[1] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)> 
+    %75 = llvm.getelementptr inbounds|nuw %74[%56] : (!llvm.ptr, i64) -> !llvm.ptr, f32
+    %76 = llvm.load %75 : !llvm.ptr -> f32
+    %77 = llvm.fadd %76, %73 : f32
+    %78 = llvm.extractvalue %11[1] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)> 
+    %79 = llvm.getelementptr inbounds|nuw %78[%56] : (!llvm.ptr, i64) -> !llvm.ptr, f32
+    llvm.store %77, %79 : f32, !llvm.ptr
     llvm.br ^bb14(%65 : f32)
-  ^bb13:  // pred: ^bb11
-    llvm.br ^bb14(%51 : f32)
-  ^bb14(%66: f32):  // 2 preds: ^bb12, ^bb13
+  ^bb14(%80: f32):  // 3 preds: ^bb11, ^bb12, ^bb13
     llvm.br ^bb15
   ^bb15:  // pred: ^bb14
-    %67 = llvm.add %50, %13 : i64
-    llvm.br ^bb10(%67, %66 : i64, f32)
-  ^bb16:  // pred: ^bb10
-    %68 = llvm.extractvalue %11[1] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)> 
-    %69 = llvm.getelementptr inbounds|nuw %68[%46] : (!llvm.ptr, i64) -> !llvm.ptr, f32
-    llvm.store %51, %69 : f32, !llvm.ptr
-    llvm.br ^bb17(%41 : i64)
-  ^bb17(%70: i64):  // 2 preds: ^bb16, ^bb22
-    %71 = llvm.icmp "ult" %70, %26 : i64
-    llvm.cond_br %71, ^bb18, ^bb19
-  ^bb18:  // pred: ^bb17
-    %72 = llvm.extractvalue %17[1] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)> 
-    %73 = llvm.getelementptr inbounds|nuw %72[%41] : (!llvm.ptr, i64) -> !llvm.ptr, i32
-    %74 = llvm.load %73 : !llvm.ptr -> i32
-    %75 = llvm.zext %74 : i32 to i64
-    %76 = llvm.extractvalue %17[1] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)> 
-    %77 = llvm.getelementptr inbounds|nuw %76[%70] : (!llvm.ptr, i64) -> !llvm.ptr, i32
-    %78 = llvm.load %77 : !llvm.ptr -> i32
-    %79 = llvm.zext %78 : i32 to i64
-    %80 = llvm.icmp "eq" %75, %79 : i64
-    llvm.br ^bb20(%80 : i1)
-  ^bb19:  // pred: ^bb17
-    llvm.br ^bb20(%12 : i1)
-  ^bb20(%81: i1):  // 2 preds: ^bb18, ^bb19
-    llvm.br ^bb21
-  ^bb21:  // pred: ^bb20
-    llvm.cond_br %81, ^bb22, ^bb7(%41, %70 : i64, i64)
+    llvm.br ^bb16
+  ^bb16:  // pred: ^bb15
+    %81 = llvm.add %50, %13 : i64
+    llvm.br ^bb10(%81, %80 : i64, f32)
+  ^bb17:  // pred: ^bb10
+    %82 = llvm.extractvalue %11[1] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)> 
+    %83 = llvm.getelementptr inbounds|nuw %82[%46] : (!llvm.ptr, i64) -> !llvm.ptr, f32
+    llvm.store %51, %83 : f32, !llvm.ptr
+    llvm.br ^bb18(%41 : i64)
+  ^bb18(%84: i64):  // 2 preds: ^bb17, ^bb23
+    %85 = llvm.icmp "ult" %84, %26 : i64
+    llvm.cond_br %85, ^bb19, ^bb20
+  ^bb19:  // pred: ^bb18
+    %86 = llvm.extractvalue %17[1] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)> 
+    %87 = llvm.getelementptr inbounds|nuw %86[%41] : (!llvm.ptr, i64) -> !llvm.ptr, i32
+    %88 = llvm.load %87 : !llvm.ptr -> i32
+    %89 = llvm.zext %88 : i32 to i64
+    %90 = llvm.extractvalue %17[1] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)> 
+    %91 = llvm.getelementptr inbounds|nuw %90[%84] : (!llvm.ptr, i64) -> !llvm.ptr, i32
+    %92 = llvm.load %91 : !llvm.ptr -> i32
+    %93 = llvm.zext %92 : i32 to i64
+    %94 = llvm.icmp "eq" %89, %93 : i64
+    llvm.br ^bb21(%94 : i1)
+  ^bb20:  // pred: ^bb18
+    llvm.br ^bb21(%12 : i1)
+  ^bb21(%95: i1):  // 2 preds: ^bb19, ^bb20
+    llvm.br ^bb22
   ^bb22:  // pred: ^bb21
-    %82 = llvm.add %70, %13 : i64
-    llvm.br ^bb17(%82 : i64)
-  ^bb23:  // pred: ^bb8
+    llvm.cond_br %95, ^bb23, ^bb7(%41, %84 : i64, i64)
+  ^bb23:  // pred: ^bb22
+    %96 = llvm.add %84, %13 : i64
+    llvm.br ^bb18(%96 : i64)
+  ^bb24:  // pred: ^bb8
     llvm.return %11 : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)>
   }
   llvm.func @main() {
