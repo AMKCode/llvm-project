@@ -1302,7 +1302,7 @@ struct DirectConvertRewriter : public OpRewritePattern<ConvertOp> {
     TensorLike dstBuf(rewriter, loc, dstStt.getRankedTensorType(), sizes);
 
     bool hasSymmetry = false;
-    if (encDst && !encDst.getSymmetry().empty()) {
+    if (encDst && encDst.getSymmetry() && !encDst.getSymmetry().empty()) {
       hasSymmetry = true;
     }
 
@@ -1346,14 +1346,18 @@ struct DirectConvertRewriter : public OpRewritePattern<ConvertOp> {
           } else {
             dstBuf.insert(builder, loc, v, dcvs);
           }
-          scf::YieldOp::create(builder, loc, dstBuf.val);
-
+          
           if (hasSymmetry) {
+            // Yield from the then region of the symmetry ifOp
+            scf::YieldOp::create(builder, loc, dstBuf.val);
+            
             // Exit the symmetry ifOp
             builder.setInsertionPointAfter(symIfOp);
             dstBuf.val = symIfOp.getResult(0);
-            sparse_tensor::YieldOp::create(builder, loc, dstBuf.val);
           }
+          
+          // Always yield to the ForeachOp
+          sparse_tensor::YieldOp::create(builder, loc, dstBuf.val);
         });
 
     rewriter.setInsertionPointAfter(foreachOp);
