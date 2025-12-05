@@ -31,10 +31,6 @@ func.func @main() {
   %c1 = arith.constant 1 : index
   %c2 = arith.constant 2 : index
 
-  // Symmetric matrix A:
-  // [2.0, 1.0, 0.0]
-  // [1.0, 3.0, 2.0]
-  // [0.0, 2.0, 4.0]
   %A_dense = arith.constant dense<[
     [2.0, 1.0, 0.0],
     [1.0, 3.0, 2.0],
@@ -43,21 +39,18 @@ func.func @main() {
 
   %A = sparse_tensor.convert %A_dense : tensor<3x3xf32> to tensor<3x3xf32, #COO_SYM>
 
-  // Dense matrix B (identity for verification):
   %B = arith.constant dense<[
     [1.0, 0.0, 0.0],
     [0.0, 1.0, 0.0],
     [0.0, 0.0, 1.0]
   ]> : tensor<3x3xf32>
 
-  // Initialize C to zero
   %C = arith.constant dense<[
     [0.0, 0.0, 0.0],
     [0.0, 0.0, 0.0],
     [0.0, 0.0, 0.0]
   ]> : tensor<3x3xf32>
 
-  // Perform SSYMM: C = A * B = A * I = A
   %result = func.call @ssymm_coo(%A, %B, %C) :
     (tensor<3x3xf32, #COO_SYM>, tensor<3x3xf32>, tensor<3x3xf32>) -> tensor<3x3xf32>
 

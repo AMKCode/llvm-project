@@ -1310,19 +1310,17 @@ struct DirectConvertRewriter : public OpRewritePattern<ConvertOp> {
         rewriter, loc, src, dstBuf.val, foreachOrder,
         [&](OpBuilder &builder, Location loc, ValueRange dcvs, Value v,
             ValueRange reduc) {
-          // Enters the loop, update the SSA value for insertion chain.
           dstBuf.val = reduc.front();
           
           scf::IfOp symIfOp;
           if (hasSymmetry) {
-            // Assume 2D matrix: dcvs[0] is row (i), dcvs[1] is column (j)
+            // assume 2D matrix
             Value rowIdx = dcvs[0];
             Value colIdx = dcvs[1];
             Value symCond = arith::CmpIOp::create(
                 builder, loc, arith::CmpIPredicate::ule, rowIdx, colIdx);
 
-            symIfOp = scf::IfOp::create(builder, loc, reduc.getTypes(), symCond,
-                                             /*else*/ true);
+            symIfOp = scf::IfOp::create(builder, loc, reduc.getTypes(), symCond, true);
             builder.setInsertionPointToStart(&symIfOp.getElseRegion().front());
             scf::YieldOp::create(builder, loc, dstBuf.val);
 

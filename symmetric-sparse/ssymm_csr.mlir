@@ -1,6 +1,5 @@
 // SSYMM: Symmetric Sparse Matrix-Matrix Multiplication
 // C = A * B where A is symmetric sparse, B and C are dense
-// This is analogous to BLAS SSYMM (Symmetric Matrix-Matrix Multiply)
 
 #CSR_SYM = #sparse_tensor.encoding<{
   map = (d0, d1) -> (d0 : dense, d1 : compressed),
@@ -9,8 +8,6 @@
   symmetry = [[0, 1]]
 }>
 
-// Matrix-matrix multiplication: C[i,k] = A[i,j] * B[j,k]
-// Where A is symmetric sparse (CSR format)
 func.func @ssymm(%A: tensor<3x3xf32, #CSR_SYM>,
                  %B: tensor<3x3xf32>,
                  %C: tensor<3x3xf32>) -> tensor<3x3xf32> {
@@ -34,10 +31,6 @@ func.func @main() {
   %c1 = arith.constant 1 : index
   %c2 = arith.constant 2 : index
 
-  // Symmetric matrix A:
-  // [2.0, 1.0, 0.0]
-  // [1.0, 3.0, 2.0]
-  // [0.0, 2.0, 4.0]
   %A_dense = arith.constant dense<[
     [2.0, 1.0, 0.0],
     [1.0, 3.0, 2.0],
@@ -47,26 +40,18 @@ func.func @main() {
   // Convert to CSR symmetric sparse format
   %A = sparse_tensor.convert %A_dense : tensor<3x3xf32> to tensor<3x3xf32, #CSR_SYM>
 
-  // Dense matrix B:
-  // [1.0, 0.0, 0.0]
-  // [0.0, 1.0, 0.0]
-  // [0.0, 0.0, 1.0]
-  // (Identity matrix for easy verification)
   %B = arith.constant dense<[
     [1.0, 0.0, 0.0],
     [0.0, 1.0, 0.0],
     [0.0, 0.0, 1.0]
   ]> : tensor<3x3xf32>
 
-  // Initialize C to zero
   %C = arith.constant dense<[
     [0.0, 0.0, 0.0],
     [0.0, 0.0, 0.0],
     [0.0, 0.0, 0.0]
   ]> : tensor<3x3xf32>
 
-  // Perform SSYMM: C = A * B
-  // Since B is identity, result should equal A
   %result = func.call @ssymm(%A, %B, %C) :
     (tensor<3x3xf32, #CSR_SYM>, tensor<3x3xf32>, tensor<3x3xf32>) -> tensor<3x3xf32>
 

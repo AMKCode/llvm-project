@@ -1375,20 +1375,8 @@ static void genStmt(CodegenEnv &env, RewriterBase &rewriter, ExprId exp,
         filterOp = scf::IfOp::create(rewriter, loc, types, isUpperTriangle,
                                      /*else=*/!types.empty());
         rewriter.setInsertionPointToStart(&filterOp.getThenRegion().front());
-
-        // Common Tensor Access Elimination (Section 4.2.1 from SySTeC paper):
-        // For symmetric tensors in the triangular iteration, explicitly cache
-        // the tensor value A[i,j] to avoid redundant loads. This is particularly
-        // important for sparse iterators where each load involves pointer chasing.
-        //
-        // Strategy:
-        // 1. Identify symmetric tensor operand
-        // 2. Generate explicit load of A[i,j] immediately after filter
-        // 3. Cache the value using Merger's expression value mechanism
-        // 4. Subsequent uses will retrieve cached value instead of reloading
-        //
-        // This makes the optimization visible in MLIR IR (instead of relying
-        // on LLVM CSE) and prepares for dual updates implementation.
+          
+        // Begin commen tensor access elimination
 
         linalg::GenericOp op = env.op();
 
@@ -1419,21 +1407,6 @@ static void genStmt(CodegenEnv &env, RewriterBase &rewriter, ExprId exp,
               }
 
               // Cache this value for reuse in dual updates
-              // Find the expression ID for this tensor access
-              // For SpMV: the expression tree is typically something like:
-              //   exp = A[i,j] * x[j]
-              // We want to cache the A[i,j] part
-              //
-              // Note: This cached value is now available and could be used
-              // for dual updates: y[i] += cached * x[j], y[j] += cached * x[i]
-              //
-              // Store in a way that makes it retrievable
-              // (In full dual updates implementation, we'd use this cached value)
-
-              // For documentation: the cached value is in 'cachedMatrixValue'
-              // and would be used like:
-              //   y[i] += cachedMatrixValue * x[j]
-              //   y[j] += cachedMatrixValue * x[i]  // Reuse!
               (void)cachedMatrixValue; // Explicitly loaded but awaiting dual updates
             }
             break;
@@ -1521,15 +1494,7 @@ static void genStmt(CodegenEnv &env, RewriterBase &rewriter, ExprId exp,
           rewriter.setInsertionPointAfter(symIfOp);
         }
 
-        // Distributive Assignment Grouping (Section 4.2.7 from SySTeC paper):
-        // For operations with invisible output symmetry (output doesn't depend on
-        // loop indices, like scalar reductions x^T A x), multiply off-diagonal
-        // contributions by 2 since triangular iteration only visits them once.
-        //
-        // Detection:
-        // 1. Check if output has invisible symmetry (no index dependencies)
-        // 2. Check if current position is off-diagonal (row != col)
-        // 3. If both true, multiply reduction value by 2
+        // Begin distribute assignment grouping
 
         bool hasInvisibleOutputSymmetry = false;
 
@@ -1603,13 +1568,8 @@ static void genStmt(CodegenEnv &env, RewriterBase &rewriter, ExprId exp,
           env.updateReduc(diagonalCheck.getResult(0));
         }
 
+        // break of out distributive grouping
         skip_distributive_grouping:
-        // NOTE: Future optimizations could be added here:
-        // 1. Read/write elimination (dual updates): y[j] += A[i,j] * x[i]
-        //    - Requires handling dual stores in reduction context
-        // 2. Diagonal splitting: Separate loop nests for diagonal/off-diagonal
-        //    - Would require splitting at higher level before sparsification
-        //    - Could reduce branch divergence in generated code
 
         // Yield from the then-branch of the filter
         SmallVector<Value> yields;

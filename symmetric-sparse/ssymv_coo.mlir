@@ -24,19 +24,10 @@ func.func @sparse_mv(%A: tensor<3x3xf32, #COO>,
 }
 
 func.func @main() {
-  // Create a simple 3x3 symmetric matrix:
-  // [2.0, 1.0, 0.0]
-  // [1.0, 3.0, 2.0]
-  // [0.0, 2.0, 4.0]
-  
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
   %c2 = arith.constant 2 : index
   
-  // Create a dense 3x3 symmetric matrix:
-  // [2.0, 1.0, 0.0]
-  // [1.0, 3.0, 2.0]
-  // [0.0, 2.0, 4.0]
   %A_dense = arith.constant dense<[
     [2.0, 1.0, 0.0],
     [1.0, 3.0, 2.0],
@@ -46,16 +37,12 @@ func.func @main() {
   // Convert dense matrix to COO sparse format
   %A = sparse_tensor.convert %A_dense : tensor<3x3xf32> to tensor<3x3xf32, #COO>
   
-  // Create input vector x = [1.0, 2.0, 3.0]
   %x = arith.constant dense<[1.0, 2.0, 3.0]> : tensor<3xf32>
   
-  // Create output vector y initialized to zero
   %y = arith.constant dense<[0.0, 0.0, 0.0]> : tensor<3xf32>
   
-  // Perform sparse matrix-vector multiplication
   %result = func.call @sparse_mv(%A, %x, %y) : (tensor<3x3xf32, #COO>, tensor<3xf32>, tensor<3xf32>) -> tensor<3xf32>
   
-  // Print the result
   %v0 = tensor.extract %result[%c0] : tensor<3xf32>
   %v1 = tensor.extract %result[%c1] : tensor<3xf32>
   %v2 = tensor.extract %result[%c2] : tensor<3xf32>

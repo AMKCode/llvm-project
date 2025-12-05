@@ -6,9 +6,8 @@
 # [1.0, 3.0, 2.0]
 # [0.0, 2.0, 4.0]
 
-set -e  # Exit on error
+set -e
 
-# Get the project root directory (parent of symmetric-sparse)
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "Step 1: Optimizing MLIR with sparsifier..."
@@ -18,9 +17,9 @@ ${PROJECT_ROOT}/build/bin/mlir-opt ssymm_csr.mlir \
   -o ssymm_csr_opt.mlir
 
 echo "Step 2: Running optimized MLIR..."
-${PROJECT_ROOT}/build/bin/mlir-runner ssymm_csr_opt.mlir \
+time ${PROJECT_ROOT}/build/bin/mlir-runner ssymm_csr_opt.mlir \
   -e main \
   -entry-point-result=void \
-  -shared-libs=${PROJECT_ROOT}/build/lib/libmlir_c_runner_utils.dylib,${PROJECT_ROOT}/build/lib/libmlir_runner_utils.dylib
+  -shared-libs=${PROJECT_ROOT}/build/lib/libmlir_c_runner_utils.so,${PROJECT_ROOT}/build/lib/libmlir_runner_utils.so
 
 echo "Done!"

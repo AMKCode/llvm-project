@@ -219,12 +219,7 @@ def SparseTensorEncodingAttr : SparseTensor_Attr<"SparseTensorEncoding",
 
     - The symmetry groups for the sparse tensor. If symmetry is set,
       it encodes which dimensions are symmetric with respect to each other.
-      It is represented as an array of arrays, where each inner array
-      contains the indices of dimensions that form a symmetry group.
-      For example, `[[0, 1]]` indicates that dimensions 0 and 1 are
-      symmetric (full 2D symmetry). `[[0, 1], [2, 3]]` would indicate
-      two separate symmetry groups. The default value Attribute() indicates
-      no symmetry constraints.
+      Currently, it works only with 2D symmetry (i.e. symmetry = [[0, 1]]).
 
     Examples:
 
@@ -378,10 +373,7 @@ def SparseTensorEncodingAttr : SparseTensor_Attr<"SparseTensorEncoding",
       "per dimension slice metadata"
       >: $dimSlices,
 
-    // Symmetry groups encoded as an array of dimension index arrays.
-    // Each inner array represents a symmetry group where dimensions
-    // are symmetric with respect to each other.
-    // For example, [[0, 1]] indicates full symmetry between dims 0 and 1.
+    // Symmetry groups encoded as an array of dim indices.
     "::mlir::ArrayAttr":$symmetry
   );
 
